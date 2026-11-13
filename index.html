@@ -50,6 +50,14 @@
       border-radius: 10px;
       padding: 28px 24px;
     }
+    .logo {
+      display: block;
+      max-width: 160px;
+      max-height: 90px;
+      width: auto;
+      height: auto;
+      margin: 0 auto 18px;
+    }
     h1 { font-size: 1.4rem; margin: 0 0 6px; }
     p.lead { margin: 0 0 20px; color: var(--muted); }
     label { display: block; font-weight: 600; margin-bottom: 6px; }
@@ -94,12 +102,13 @@
 </head>
 <body>
   <main>
+    <img class="logo" src="logo.png" alt="Logo" onerror="this.style.display='none'">
     <h1>Portal Cek Akun</h1>
-    <p class="lead">Masukkan nomor WhatsApp yang terdaftar untuk melihat data akun Anda.</p>
+    <p class="lead">Masukkan nomor WhatsApp atau nama lengkap yang terdaftar untuk melihat data akun Anda.</p>
 
     <form id="form">
-      <label for="wa">Nomor WhatsApp</label>
-      <input id="wa" type="tel" inputmode="tel" autocomplete="tel" placeholder="Contoh: 081234567890" required>
+      <label for="wa">Nomor WhatsApp atau nama lengkap</label>
+      <input id="wa" type="text" autocomplete="off" placeholder="081234567890 atau Budi Santoso" required>
       <button id="tombol" type="submit">Cek akun</button>
     </form>
 
@@ -109,12 +118,13 @@
   <script>
     // Ganti dengan link CSV dari Spreadsheet:
     // File > Bagikan > Publikasikan ke web > pilih sheet > format CSV
-    var CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vR3SiICjATYMFq5zOyZ-TpGZIAL9inC51sF85Rco5kZUK8i-_bLTewmFnFbOciggy6CnR9RVqzdHqsF/pub?gid=0&single=true&output=csv';
+    var CSV_URL = 'https://docs.google.com/spreadsheets/d/e/GANTI_DENGAN_ID_PUBLIKASI/pub?output=csv';
 
     // Urutan kolom (mulai dari 0): A=Nama, B=Akun, C=Detail, D=Sekolah, E=No. WhatsApp
     var KOLOM = { nama: 0, akun: 1, detail: 2, sekolah: 3, wa: 4 };
 
-    var PESAN_TIDAK_ADA = 'Nomor WhatsApp tidak ditemukan. Pastikan nomor yang Anda masukkan sesuai dengan data panitia. Jika ada pertanyaan, silakan chat ke nomor 082121000893.';
+    var PESAN_TIDAK_ADA = 'Nomor WhatsApp atau nama tidak ditemukan. Pastikan yang Anda masukkan sesuai dengan data panitia. Jika ada pertanyaan, silakan chat ke nomor 082121000893.';
+    var PESAN_NAMA_GANDA = 'Ada lebih dari satu peserta dengan nama tersebut. Silakan masukkan nomor WhatsApp Anda.';
 
     var form = document.getElementById('form');
     var input = document.getElementById('wa');
@@ -128,6 +138,17 @@
       // Spreadsheet kadang membuang angka 0 di depan (08xx jadi 8xx)
       else if (wa.charAt(0) === '8') wa = '0' + wa;
       return wa;
+    }
+
+    // Normalisasi nama: huruf kecil, tanpa aksen, spasi ganda dirapikan
+    function normalisasiNama(nama) {
+      return String(nama).normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase().replace(/\s+/g, ' ').trim();
+    }
+
+    // Input dianggap nomor WA jika setelah dibersihkan hanya berisi angka (min. 8 digit)
+    function apakahNomor(teks) {
+      return /^\d{8,}$/.test(String(teks).trim().replace(/[\s+\-()]/g, ''));
     }
 
     // Parser CSV sederhana (mendukung tanda kutip dan baris baru di dalam sel)
@@ -178,8 +199,10 @@
 
     form.addEventListener('submit', function (e) {
       e.preventDefault();
-      var cari = normalisasiWA(input.value);
-      if (cari === '') { tampilError('Nomor WhatsApp belum diisi.'); return; }
+      var masukan = input.value.trim();
+      if (masukan === '') { tampilError('Nomor WhatsApp atau nama belum diisi.'); return; }
+      var modeNomor = apakahNomor(masukan);
+      var cari = modeNomor ? normalisasiWA(masukan) : normalisasiNama(masukan);
 
       tombol.disabled = true;
       tombol.textContent = 'Mencari...';
@@ -192,13 +215,16 @@
         })
         .then(function (teks) {
           var data = parseCSV(teks);
+          var cocok = [];
           for (var i = 1; i < data.length; i++) {   // baris 0 = judul kolom
-            if (normalisasiWA(data[i][KOLOM.wa] || '') === cari) {
-              tampilData(data[i]);
-              return;
-            }
+            var nilai = modeNomor
+              ? normalisasiWA(data[i][KOLOM.wa] || '')
+              : normalisasiNama(data[i][KOLOM.nama] || '');
+            if (nilai === cari) cocok.push(data[i]);
           }
-          tampilError(PESAN_TIDAK_ADA);
+          if (cocok.length === 0) tampilError(PESAN_TIDAK_ADA);
+          else if (cocok.length > 1 && !modeNomor) tampilError(PESAN_NAMA_GANDA);
+          else tampilData(cocok[0]);
         })
         .catch(function () {
           tampilError('Gagal memuat data. Periksa koneksi internet, lalu coba lagi.');
