@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Portal Cek Akun</title>
+  <style>
+    :root {
+      --bg: #f3f5f2;
+      --surface: #ffffff;
+      --ink: #1d2a24;
+      --muted: #5d6b64;
+      --line: #d5dcd7;
+      --accent: #1f6f5c;
+      --accent-ink: #ffffff;
+      --error-bg: #fbeceb;
+      --error-ink: #8a2a22;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #121a16;
+        --surface: #1a2420;
+        --ink: #e8efeb;
+        --muted: #9aaba2;
+        --line: #2c3a33;
+        --accent: #4fb89d;
+        --accent-ink: #0c1612;
+        --error-bg: #3a1e1b;
+        --error-ink: #f1b8b2;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      line-height: 1.5;
+    }
+    main {
+      width: 100%;
+      max-width: 440px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 28px 24px;
+    }
+    h1 { font-size: 1.4rem; margin: 0 0 6px; }
+    p.lead { margin: 0 0 20px; color: var(--muted); }
+    label { display: block; font-weight: 600; margin-bottom: 6px; }
+    input {
+      width: 100%;
+      padding: 12px;
+      font-size: 1rem;
+      color: var(--ink);
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+    }
+    input:focus-visible, button:focus-visible {
+      outline: 3px solid var(--accent);
+      outline-offset: 2px;
+    }
+    button {
+      margin-top: 14px;
+      width: 100%;
+      padding: 12px;
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--accent-ink);
+      background: var(--accent);
+      border: 0;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    button:disabled { opacity: .6; cursor: wait; }
+    #hasil { margin-top: 22px; }
+    .error {
+      background: var(--error-bg);
+      color: var(--error-ink);
+      padding: 12px 14px;
+      border-radius: 6px;
+    }
+    dl { margin: 0; border-top: 1px solid var(--line); }
+    dl div { padding: 12px 0; border-bottom: 1px solid var(--line); }
+    dt { font-size: .85rem; color: var(--muted); }
+    dd { margin: 2px 0 0; font-weight: 600; word-break: break-word; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Portal Cek Akun</h1>
+    <p class="lead">Masukkan nomor WhatsApp yang terdaftar untuk melihat data akun Anda.</p>
+
+    <form id="form">
+      <label for="wa">Nomor WhatsApp</label>
+      <input id="wa" type="tel" inputmode="tel" autocomplete="tel" placeholder="Contoh: 081234567890" required>
+      <button id="tombol" type="submit">Cek akun</button>
+    </form>
+
+    <div id="hasil" aria-live="polite"></div>
+  </main>
+
+  <script>
+    // Ganti dengan link CSV dari Spreadsheet:
+    // File > Bagikan > Publikasikan ke web > pilih sheet > format CSV
+    var CSV_URL = 'https://docs.google.com/spreadsheets/d/e/GANTI_DENGAN_ID_PUBLIKASI/pub?output=csv';
+
+    // Urutan kolom (mulai dari 0): A=Nama, B=Akun, C=Detail, D=Sekolah, E=No. WhatsApp
+    var KOLOM = { nama: 0, akun: 1, detail: 2, sekolah: 3, wa: 4 };
+
+    var PESAN_TIDAK_ADA = 'Nomor WhatsApp tidak ditemukan. Pastikan nomor yang Anda masukkan sesuai dengan data panitia. Jika ada pertanyaan, silakan chat ke nomor 082121000893.';
+
+    var form = document.getElementById('form');
+    var input = document.getElementById('wa');
+    var tombol = document.getElementById('tombol');
+    var hasil = document.getElementById('hasil');
+
+    // Normalisasi nomor WA: abaikan spasi, +, hubung, kurung; samakan awalan 62 / 0
+    function normalisasiWA(nomor) {
+      var wa = String(nomor).trim().replace(/[\s+\-()]/g, '');
+      if (wa.indexOf('62') === 0) wa = '0' + wa.substring(2);
+      // Spreadsheet kadang membuang angka 0 di depan (08xx jadi 8xx)
+      else if (wa.charAt(0) === '8') wa = '0' + wa;
+      return wa;
+    }
+
+    // Parser CSV sederhana (mendukung tanda kutip dan baris baru di dalam sel)
+    function parseCSV(teks) {
+      var baris = [], sel = '', row = [], kutip = false;
+      for (var i = 0; i < teks.length; i++) {
+        var c = teks.charAt(i);
+        if (kutip) {
+          if (c === '"' && teks.charAt(i + 1) === '"') { sel += '"'; i++; }
+          else if (c === '"') kutip = false;
+          else sel += c;
+        } else if (c === '"') kutip = true;
+        else if (c === ',') { row.push(sel); sel = ''; }
+        else if (c === '\n' || c === '\r') {
+          if (c === '\r' && teks.charAt(i + 1) === '\n') i++;
+          row.push(sel); sel = '';
+          baris.push(row); row = [];
+        } else sel += c;
+      }
+      if (sel !== '' || row.length) { row.push(sel); baris.push(row); }
+      return baris;
+    }
+
+    function tampilError(pesan) {
+      hasil.innerHTML = '';
+      var el = document.createElement('div');
+      el.className = 'error';
+      el.textContent = pesan;
+      hasil.appendChild(el);
+    }
+
+    function tampilData(r) {
+      hasil.innerHTML = '';
+      var dl = document.createElement('dl');
+      [['Nama', r[KOLOM.nama]], ['Akun', r[KOLOM.akun]], ['Detail', r[KOLOM.detail]], ['Sekolah', r[KOLOM.sekolah]]]
+        .forEach(function (b) {
+          var wrap = document.createElement('div');
+          var dt = document.createElement('dt');
+          var dd = document.createElement('dd');
+          dt.textContent = b[0];
+          dd.textContent = b[1] || '-';
+          wrap.appendChild(dt);
+          wrap.appendChild(dd);
+          dl.appendChild(wrap);
+        });
+      hasil.appendChild(dl);
+    }
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var cari = normalisasiWA(input.value);
+      if (cari === '') { tampilError('Nomor WhatsApp belum diisi.'); return; }
+
+      tombol.disabled = true;
+      tombol.textContent = 'Mencari...';
+      hasil.innerHTML = '';
+
+      fetch(CSV_URL)
+        .then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.text();
+        })
+        .then(function (teks) {
+          var data = parseCSV(teks);
+          for (var i = 1; i < data.length; i++) {   // baris 0 = judul kolom
+            if (normalisasiWA(data[i][KOLOM.wa] || '') === cari) {
+              tampilData(data[i]);
+              return;
+            }
+          }
+          tampilError(PESAN_TIDAK_ADA);
+        })
+        .catch(function () {
+          tampilError('Gagal memuat data. Periksa koneksi internet, lalu coba lagi.');
+        })
+        .finally(function () {
+          tombol.disabled = false;
+          tombol.textContent = 'Cek akun';
+        });
+    });
+  </script>
+</body>
+</html>
