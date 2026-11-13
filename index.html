@@ -118,7 +118,7 @@
   <script>
     // Ganti dengan link CSV dari Spreadsheet:
     // File > Bagikan > Publikasikan ke web > pilih sheet > format CSV
-    var CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vR3SiICjATYMFq5zOyZ-TpGZIAL9inC51sF85Rco5kZUK8i-_bLTewmFnFbOciggy6CnR9RVqzdHqsF/pubhtml;
+    var CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vR3SiICjATYMFq5zOyZ-TpGZIAL9inC51sF85Rco5kZUK8i-_bLTewmFnFbOciggy6CnR9RVqzdHqsF/pub?output=csv;
 
     // Urutan kolom (mulai dari 0): A=Nama, B=Akun, C=Detail, D=Sekolah, E=No. WhatsApp
     var KOLOM = { nama: 0, akun: 1, detail: 2, sekolah: 3, wa: 4 };
@@ -208,10 +208,17 @@
       tombol.textContent = 'Mencari...';
       hasil.innerHTML = '';
 
-      fetch(CSV_URL)
+      var sep = CSV_URL.indexOf('?') === -1 ? '?' : '&';
+      fetch(CSV_URL + sep + 't=' + Date.now(), { cache: 'no-store' })
         .then(function (r) {
-          if (!r.ok) throw new Error('HTTP ' + r.status);
+          if (!r.ok) throw new Error('Server Google membalas kode ' + r.status);
           return r.text();
+        })
+        .then(function (teks) {
+          if (/^\s*<(!doctype|html)/i.test(teks)) {
+            throw new Error('Link yang diterima bukan CSV (sheet tidak lagi dipublikasikan)');
+          }
+          return teks;
         })
         .then(function (teks) {
           var data = parseCSV(teks);
@@ -226,8 +233,9 @@
           else if (cocok.length > 1 && !modeNomor) tampilError(PESAN_NAMA_GANDA);
           else tampilData(cocok[0]);
         })
-        .catch(function () {
-          tampilError('Gagal memuat data. Periksa koneksi internet, lalu coba lagi.');
+        .catch(function (err) {
+          console.error('Gagal memuat data:', err);
+          tampilError('Gagal memuat data. Periksa koneksi internet, lalu coba lagi. (' + (err && err.message ? err.message : 'tidak diketahui') + ')');
         })
         .finally(function () {
           tombol.disabled = false;
