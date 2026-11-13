@@ -120,8 +120,13 @@
     // File > Bagikan > Publikasikan ke web > pilih sheet > format CSV
     var CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vR3SiICjATYMFq5zOyZ-TpGZIAL9inC51sF85Rco5kZUK8i-_bLTewmFnFbOciggy6CnR9RVqzdHqsF/pub?gid=0&single=true&output=csv';
 
-    // Urutan kolom (mulai dari 0): A=Nama, B=Akun, C=Detail, D=Sekolah, E=No. WhatsApp
-    var KOLOM = { nama: 0, akun: 1, detail: 2, sekolah: 3, wa: 4 };
+    // Kolom dikenali dari JUDUL di baris pertama Spreadsheet (bukan urutan),
+    // jadi kolom baru otomatis ikut tampil di web dengan judul yang sama.
+    // Kata kunci judul kolom yang dipakai untuk mencari (huruf besar/kecil tidak berpengaruh):
+    var KUNCI_NAMA = ['nama'];
+    var KUNCI_WA = ['whatsapp', 'wa', 'hp', 'telepon', 'telp'];
+    // Kolom yang TIDAK ditampilkan ke pengunjung (judul mengandung kata ini):
+    var SEMBUNYIKAN = ['whatsapp', 'wa', 'hp', 'telepon', 'telp'];
 
     var PESAN_TIDAK_ADA = 'Nomor WhatsApp atau nama tidak ditemukan. Pastikan yang Anda masukkan sesuai dengan data panitia. Jika ada pertanyaan, silakan chat ke nomor 082121000893.';
     var PESAN_NAMA_GANDA = 'Ada lebih dari satu peserta dengan nama tersebut. Silakan masukkan nomor WhatsApp Anda.';
@@ -149,6 +154,23 @@
     // Input dianggap nomor WA jika setelah dibersihkan hanya berisi angka (min. 8 digit)
     function apakahNomor(teks) {
       return /^\d{8,}$/.test(String(teks).trim().replace(/[\s+\-()]/g, ''));
+    }
+
+    // Cari indeks kolom pertama yang judulnya cocok dengan salah satu kata kunci
+    function cariKolom(header, kunci) {
+      for (var i = 0; i < header.length; i++) {
+        if (cocokKunci(header[i], kunci)) return i;
+      }
+      return -1;
+    }
+
+    // Kata pendek (mis. "wa", "hp") dicocokkan sebagai kata utuh agar tidak salah kena
+    function cocokKunci(judul, kunci) {
+      var j = String(judul).toLowerCase();
+      var kata = j.split(/[^a-z0-9]+/);
+      return kunci.some(function (k) {
+        return k.length <= 3 ? kata.indexOf(k) !== -1 : j.indexOf(k) !== -1;
+      });
     }
 
     // Parser CSV sederhana (mendukung tanda kutip dan baris baru di dalam sel)
@@ -180,20 +202,21 @@
       hasil.appendChild(el);
     }
 
-    function tampilData(r) {
+    function tampilData(r, header) {
       hasil.innerHTML = '';
       var dl = document.createElement('dl');
-      [['Nama', r[KOLOM.nama]], ['Akun', r[KOLOM.akun]], ['Detail', r[KOLOM.detail]], ['Sekolah', r[KOLOM.sekolah]]]
-        .forEach(function (b) {
-          var wrap = document.createElement('div');
-          var dt = document.createElement('dt');
-          var dd = document.createElement('dd');
-          dt.textContent = b[0];
-          dd.textContent = b[1] || '-';
-          wrap.appendChild(dt);
-          wrap.appendChild(dd);
-          dl.appendChild(wrap);
-        });
+      header.forEach(function (judul, i) {
+        if (String(judul).trim() === '') return;          // lewati kolom tanpa judul
+        if (cocokKunci(judul, SEMBUNYIKAN)) return;        // lewati kolom yang disembunyikan
+        var wrap = document.createElement('div');
+        var dt = document.createElement('dt');
+        var dd = document.createElement('dd');
+        dt.textContent = judul;
+        dd.textContent = (r[i] || '').trim() || '-';
+        wrap.appendChild(dt);
+        wrap.appendChild(dd);
+        dl.appendChild(wrap);
+      });
       hasil.appendChild(dl);
     }
 
@@ -222,16 +245,25 @@
         })
         .then(function (teks) {
           var data = parseCSV(teks);
+          var header = data[0] || [];                       // baris 0 = judul kolom
+          var kolomNama = cariKolom(header, KUNCI_NAMA);
+          var kolomWA = cariKolom(header, KUNCI_WA);
+          var kolomCari = modeNomor ? kolomWA : kolomNama;
+
+          if (kolomCari === -1) {
+            throw new Error('Kolom ' + (modeNomor ? 'WhatsApp' : 'Nama') + ' tidak ditemukan di judul Spreadsheet');
+          }
+
           var cocok = [];
-          for (var i = 1; i < data.length; i++) {   // baris 0 = judul kolom
+          for (var i = 1; i < data.length; i++) {
             var nilai = modeNomor
-              ? normalisasiWA(data[i][KOLOM.wa] || '')
-              : normalisasiNama(data[i][KOLOM.nama] || '');
+              ? normalisasiWA(data[i][kolomCari] || '')
+              : normalisasiNama(data[i][kolomCari] || '');
             if (nilai === cari) cocok.push(data[i]);
           }
           if (cocok.length === 0) tampilError(PESAN_TIDAK_ADA);
           else if (cocok.length > 1 && !modeNomor) tampilError(PESAN_NAMA_GANDA);
-          else tampilData(cocok[0]);
+          else tampilData(cocok[0], header);
         })
         .catch(function (err) {
           console.error('Gagal memuat data:', err);
